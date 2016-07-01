@@ -1,48 +1,56 @@
+/**
+ * EtherPub: trustlessly sell information per pieces.
+ * 
+ * Step 1: Publish this contract, with the hashes of the encryption key to
+ * reveal the content of chunks of information, distributed off-chain.
+ * 
+ * Step 2: Wait 10000 blocks (~1.5 days).
+ * 
+ * Step 3: Call `randomReveal()`. This will generate a set of indexes that the
+ * seller must reveal, so buyers know that the information being sold is
+ * trustworthy.
+ * 
+ * Step 4: Seller calls `revealPreimages(bytes32[] preimages)` and shows the
+ * preimages of the selected random indexes.
+ * 
+ * Step 5: Buyers may call `pay(chunkIndex)`
+ * 
+ * Step 6: Seller may redeem his payment by revealing preimages.
+ */
 contract EtherPub {
 
     address informationOwner = msg.sender;
 
     uint creationDate = now;
+    uint randomRevealTime = block.number + 10000;
 
-    uint randomRevealTime = now + 2 days;
     uint indexesToReveal;
     uint[] revealIndexes;
     bool canRedeem = false;
     bool calculatedRedeem = false;
 
     uint numberOfHashes;
-    uint chunkValue;
     bytes32[] chunkHashes;
     bytes32[] preimages;
 
     mapping(uint => uint) balance;
-    mapping(uint => address) payer;
-    mapping(uint => uint) paymentTime;
     
-    function EtherPub(bytes32[] hashes, uint value, uint numberOfReveals) {
+    function EtherPub(bytes32[] hashes, uint numberOfReveals) {
         numberOfHashes = hashes.length;
         chunkHashes = hashes;
-        chunkValue = value;
         indexesToReveal = numberOfReveals;
     }
 
     function randomReveal() {
-        uint i;
-        uint j;
-        if (now < randomRevealTime) {
+        if (block.number < randomRevealTime) {
             throw;
         }
         if (calculatedRedeem) {
             throw;
         }
-        bytes32 random = sha3(block.blockhash(block.number));
-        for (i = 0; i < numberOfHashes; i++) {
-            for (j = 0; j < random.length; j++) {
-                random = bytes32(payer[i])[j] | random[j];
-            }
-        }
+        bytes32 random = sha3(block.blockhash(randomRevealTime));
         random = sha3(random);
-        for (i = 0; i < indexesToReveal; i++) {
+        for (uint i = 0; i < indexesToReveal; i++) {
             revealIndexes[i] = uint8(random[i]) % chunkHashes.length;
         }
         calculatedRedeem = true;
@@ -65,19 +73,17 @@ contract EtherPub {
     }
     
     function pay(uint chunkNumber) {
-        if (payer[chunkNumber] != 0) {
+        if (chunkNumber > chunkHashes.length) {
             throw;
         }
-        if (msg.value < chunkValue) {
-            throw;
-        }
-        payer[chunkNumber] = msg.sender;
-        balance[chunkNumber] = msg.value;
-        paymentTime[chunkNumber] = now;
+        balance[chunkNumber] += msg.value;
     }
 
     function withdraw(uint chunkNumber, bytes32 preimage) {
         if (msg.sender != informationOwner) {
+            throw;
+        }
+        if (chunkNumber > chunkHashes.length) {
             throw;
         }
         if (balance[chunkNumber] < 1) {
@@ -93,21 +99,6 @@ contract EtherPub {
         }
         preimages[chunkNumber] = preimage;
 
-        uint amount = balance[chunkNumber];
-        balance[chunkNumber] = 0;
-
-        if (!msg.sender.send(amount)) {
-            throw;
-        }
-    }
-
-    function refund(uint chunkNumber) {
-        if (msg.sender != payer[chunkNumber]) {
-            throw;
-        }
-        if (paymentTime[chunkNumber] + 10 days < now) {
-            throw;
-        }
         uint amount = balance[chunkNumber];
         balance[chunkNumber] = 0;
 
