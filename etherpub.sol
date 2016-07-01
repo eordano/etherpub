@@ -31,16 +31,19 @@ contract EtherPub {
     bool canRedeem = false;
     bool calculatedRedeem = false;
 
+    uint minimumPayment;
     uint8 numberOfHashes;
     bytes32[] hashes;
     bytes32[] preimages;
 
     mapping(uint8 => uint) balance;
     
-    function EtherPub(bytes32[] chunks, uint8 numberOfReveals) {
+    function EtherPub(bytes32[] chunks, uint8 numberOfReveals,
+                      uint minPayment) {
         if (chunks.length > 255) {
             throw;
         }
+        minimumPayment = minPayment;
         numberOfHashes = uint8(chunks.length);
         hashes = chunks;
         if (numberOfReveals >= numberOfHashes) {
@@ -81,22 +84,36 @@ contract EtherPub {
     }
     
     function pay(uint8 chunkNumber) {
+        // The chunk to which we are paying must be a valid index.
         if (chunkNumber >= numberOfHashes) {
+            throw;
+        }
+        // No point in paying if the chunk has already been revealed.
+        if (preimages[chunkNumber] != 0) {
+            throw;
+        }
+        // The contract owner may select a minimum amount to be paid per chunk.
+        // This is to avoid a DoS that won't allow the self-destruction of the
+        // contract if there's any balance left and a preimage has not been
+        // revealed.
+        if (msg.value < minimumPayment) {
             throw;
         }
         balance[chunkNumber] += msg.value;
     }
 
     function withdraw(uint8 chunkNumber, bytes32 preimage) {
+        // Only the information owner can withdraw, and only if it reveals the
+        // valid preimage for this chunk.
         if (msg.sender != informationOwner) {
             throw;
         }
+        // Check that chunkNumber is a valid index.
         if (chunkNumber >= numberOfHashes) {
             throw;
         }
-        if (balance[chunkNumber] < 1) {
-            throw;
-        }
+        
+        // canRedeem is only true after succesful reveal of random chunks.
         if (!canRedeem) {
             throw;
         }
@@ -105,6 +122,7 @@ contract EtherPub {
         if (hashes[chunkNumber] != hash) {
             throw;
         }
+        // Store the preimage, so we know that this chunk has been revealed.
         preimages[chunkNumber] = preimage;
 
         uint amount = balance[chunkNumber];
@@ -118,18 +136,28 @@ contract EtherPub {
     function kill() {
         uint8 i;
         if (now < creation + 90 days) {
+            // If less than 90 days elapsed, but all preimages have been
+            // revealed, allow self destruction.
             for (i = 0; i < numberOfHashes; i++) {
                 if (preimages[i] == 0) {
                     throw;
                 }
             }
+            selfdestruct(informationOwner);
         } else {
-            for (i = 0; i < numberOfHashes; i++) {
-                if (balance[i] > 0) {
-                    throw;
+            // If the window of 256 blocks to read the block hash is closed
+            if (!calculatedRedeem && block.number > randomRevealTime + 256) {
+                selfdestruct(informationOwner);
+            } else {
+                // If there's any balance left, force user to reveal the
+                // preimage before self-destructing.
+                for (i = 0; i < numberOfHashes; i++) {
+                    if (balance[i] > 0) {
+                        throw;
+                    }
                 }
+                selfdestruct(informationOwner);
             }
         }
-        selfdestruct(informationOwner);
     }
 }
