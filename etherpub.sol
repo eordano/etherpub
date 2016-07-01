@@ -16,28 +16,36 @@
  * Step 5: Buyers may call `pay(chunkIndex)`
  * 
  * Step 6: Seller may redeem his payment by revealing preimages.
+ *
+ * Step 7: After all hashes have been revealed, or three months have passed, 
+ * the contract can be destroyed.
  */
 contract EtherPub {
 
     address informationOwner = msg.sender;
-
-    uint creationDate = now;
     uint randomRevealTime = block.number + 10000;
+    uint creation = now;
 
-    uint indexesToReveal;
-    uint[] revealIndexes;
+    uint8 indexesToReveal;
+    uint8[] revealIndexes;
     bool canRedeem = false;
     bool calculatedRedeem = false;
 
-    uint numberOfHashes;
-    bytes32[] chunkHashes;
+    uint8 numberOfHashes;
+    bytes32[] hashes;
     bytes32[] preimages;
 
-    mapping(uint => uint) balance;
+    mapping(uint8 => uint) balance;
     
-    function EtherPub(bytes32[] hashes, uint numberOfReveals) {
-        numberOfHashes = hashes.length;
-        chunkHashes = hashes;
+    function EtherPub(bytes32[] chunks, uint8 numberOfReveals) {
+        if (chunks.length > 255) {
+            throw;
+        }
+        numberOfHashes = uint8(chunks.length);
+        hashes = chunks;
+        if (numberOfReveals >= numberOfHashes) {
+            throw;
+        }
         indexesToReveal = numberOfReveals;
     }
 
@@ -50,8 +58,8 @@ contract EtherPub {
         }
         bytes32 random = sha3(block.blockhash(randomRevealTime));
         random = sha3(random);
-        for (uint i = 0; i < indexesToReveal; i++) {
-            revealIndexes[i] = uint8(random[i]) % chunkHashes.length;
+        for (uint8 i = 0; i < indexesToReveal; i++) {
+            revealIndexes[i] = uint8(random[i]) % numberOfHashes;
         }
         calculatedRedeem = true;
     }
@@ -63,27 +71,27 @@ contract EtherPub {
         if (prehash.length != revealIndexes.length) {
             throw;
         }
-        for (uint i = 0; i < prehash.length; i++) {
+        for (uint8 i = 0; i < prehash.length; i++) {
             bytes32 hash = sha3(prehash[i]);
-            if (hash != chunkHashes[revealIndexes[i]]) {
+            if (hash != hashes[revealIndexes[i]]) {
                 throw;
             }
         }
         canRedeem = true;
     }
     
-    function pay(uint chunkNumber) {
-        if (chunkNumber > chunkHashes.length) {
+    function pay(uint8 chunkNumber) {
+        if (chunkNumber >= numberOfHashes) {
             throw;
         }
         balance[chunkNumber] += msg.value;
     }
 
-    function withdraw(uint chunkNumber, bytes32 preimage) {
+    function withdraw(uint8 chunkNumber, bytes32 preimage) {
         if (msg.sender != informationOwner) {
             throw;
         }
-        if (chunkNumber > chunkHashes.length) {
+        if (chunkNumber >= numberOfHashes) {
             throw;
         }
         if (balance[chunkNumber] < 1) {
@@ -94,7 +102,7 @@ contract EtherPub {
         }
 
         bytes32 hash = sha3(preimage);
-        if (chunkHashes[chunkNumber] != hash) {
+        if (hashes[chunkNumber] != hash) {
             throw;
         }
         preimages[chunkNumber] = preimage;
@@ -105,5 +113,23 @@ contract EtherPub {
         if (!msg.sender.send(amount)) {
             throw;
         }
+    }
+
+    function kill() {
+        uint8 i;
+        if (now < creation + 90 days) {
+            for (i = 0; i < numberOfHashes; i++) {
+                if (preimages[i] == 0) {
+                    throw;
+                }
+            }
+        } else {
+            for (i = 0; i < numberOfHashes; i++) {
+                if (balance[i] > 0) {
+                    throw;
+                }
+            }
+        }
+        selfdestruct(informationOwner);
     }
 }
