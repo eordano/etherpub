@@ -35,15 +35,15 @@ contract EtherPub {
         if (calculatedRedeem) {
             throw;
         }
-        uint random = 0;
+        bytes32 random = sha3(block.blockhash(block.number));
         for (i = 0; i < numberOfHashes; i++) {
             for (j = 0; j < random.length; j++) {
-                random[j] = bytes32(payer[i])[j] | random[j];
+                random = bytes32(payer[i])[j] | random[j];
             }
         }
         random = sha3(random);
         for (i = 0; i < indexesToReveal; i++) {
-            revealIndexes[i] = number % chunkHashes.length;
+            revealIndexes[i] = uint8(random[i]) % chunkHashes.length;
         }
         calculatedRedeem = true;
     }
