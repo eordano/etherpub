@@ -60,7 +60,6 @@ contract EtherPub {
             throw;
         }
         bytes32 random = sha3(block.blockhash(randomRevealTime));
-        random = sha3(random);
         for (uint8 i = 0; i < indexesToReveal; i++) {
             revealIndexes[i] = uint8(random[i]) % numberOfHashes;
         }
